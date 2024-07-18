@@ -6,79 +6,100 @@ import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.LongSparseArray;
-import android.view.View;
-import android.widget.Button;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.github.mikephil.charting.BuildConfig;
 
+import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 
-
-// 00시 부터 ~ 현재 시간까지의 앱 사용시간 리스트
 public class MainActivity extends AppCompatActivity {
 
     CheckPackageNameThread checkPackageNameThread;
     boolean operation = false;
     private UsageStatsManager usageStatsManager;
-    TextView appTime;
+    RecyclerView appRecyclerView;
+    AppAdapter mAppAdapter;
+    Handler mHandler;
+    private boolean isMidnightAlreadyHandled = false; // 자정 처리 여부를 나타내는 플래그
+
+    private final Runnable mRunnable = new Runnable() {
+        @Override
+        public void run() {
+            showAppUsageStats();
+            mHandler.postDelayed(this, 1000);
+
+            // 자정에 리스트 초기화
+            if (isMidnight() && !isMidnightAlreadyHandled) {
+                mAppAdapter.clear(); // 리스트 초기화
+                isMidnightAlreadyHandled = true; // 자정 처리 완료
+            }
+
+            // 자정 다음에 다시 초기화 플래그를 리셋
+            if (!isMidnight()) {
+                isMidnightAlreadyHandled = false;
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        appTime = findViewById(R.id.app_time);
-        Button startButton = findViewById(R.id.start_button);
-        Button endButton = findViewById(R.id.end_button);
+        appRecyclerView = findViewById(R.id.app_recyclerView);
+        mAppAdapter = new AppAdapter();
+        appRecyclerView.setAdapter(mAppAdapter);
+        appRecyclerView.setLayoutManager(new LinearLayoutManager(this));
 
-        startButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                if (!checkPermission()) {
-                    Intent PermissionIntent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:" + getPackageName()));
-                    startActivity(PermissionIntent);
-                } else {
-                    operation = true;
-                    checkPackageNameThread = new CheckPackageNameThread();
-                    checkPackageNameThread.start();
-                }
-            }
-        });
+        this.mHandler = new Handler();
 
-        endButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                operation = false;
-                showAppUsageStats();
-            }
-        });
         usageStatsManager = (UsageStatsManager) getSystemService(Context.USAGE_STATS_SERVICE);
+        if (usageStatsManager == null) {
+            return;
+        }
+        mRunnable.run();
+
+        // 앱 시작 시 권한을 체크하고, 권한이 없으면 설정 화면으로 이동
+        if (!checkPermission()) {
+            Intent PermissionIntent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:" + getPackageName()));
+            startActivity(PermissionIntent);
+        } else {
+            // 권한이 있으면 데이터를 수집 시작
+            operation = true;
+            checkPackageNameThread = new CheckPackageNameThread();
+            checkPackageNameThread.start();
+        }
     }
 
     // 현재 포그라운드 앱 패키지 로그로 띄우는 함수
-    private class CheckPackageNameThread extends Thread{
+    private class CheckPackageNameThread extends Thread {
 
-        public void run(){
+        public void run() {
             // operation == true 일때만 실행
-            while(operation){
-                if(!checkPermission())
+            while (operation) {
+                if (!checkPermission())
                     continue;
 
                 // 현재 포그라운드 앱 패키지 이름 가져오기
-                Log.d("asdasd   ", getPackageName(getApplicationContext()));
+                Log.d("Current Package", getPackageName(getApplicationContext()));
                 try {
                     // 2초마다 패키치 이름을 로그창에 출력
                     sleep(2000);
@@ -102,8 +123,7 @@ public class MainActivity extends AppCompatActivity {
         if (mode == AppOpsManager.MODE_DEFAULT) {
             granted = (getApplicationContext().checkCallingOrSelfPermission(
                     android.Manifest.permission.PACKAGE_USAGE_STATS) == PackageManager.PERMISSION_GRANTED);
-        }
-        else {
+        } else {
             granted = (mode == AppOpsManager.MODE_ALLOWED);
         }
 
@@ -151,13 +171,13 @@ public class MainActivity extends AppCompatActivity {
             usageEvents.getNextEvent(event);
 
             // 현재 이벤트가 포그라운드 상태라면(현재 화면에 보이는 앱이라면)
-            if(isForeGroundEvent(event)) {
+            if (isForeGroundEvent(event)) {
 
                 // 해당 앱 이름을 packageNameMap에 넣는다.
                 packageNameMap.put(event.getTimeStamp(), event.getPackageName());
 
                 // 가장 최근에 실행 된 이벤트에 대한 타임스탬프를 업데이트 해준다.
-                if(event.getTimeStamp() > lastRunAppTimeStamp) {
+                if (event.getTimeStamp() > lastRunAppTimeStamp) {
                     lastRunAppTimeStamp = event.getTimeStamp();
                 }
             }
@@ -170,12 +190,12 @@ public class MainActivity extends AppCompatActivity {
     private static boolean isForeGroundEvent(UsageEvents.Event event) {
 
         // 이벤트가 없으면 false 반환
-        if(event == null) {
+        if (event == null) {
             return false;
         }
 
         // 이벤트가 포그라운드 상태라면 true 반환
-        if(BuildConfig.VERSION_CODE >= 29) {
+        if (BuildConfig.VERSION_CODE >= 29) {
             return event.getEventType() == UsageEvents.Event.ACTIVITY_RESUMED;
         }
 
@@ -185,25 +205,68 @@ public class MainActivity extends AppCompatActivity {
     // 앱 사용 시간을 계산하고 로그로 출력하는 함수
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     private void showAppUsageStats() {
-        long time = System.currentTimeMillis();
-        List<UsageStats> stats= usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, time - 1000 * 10, time);
+        long endTime = System.currentTimeMillis(); // 현재 시간을 종료 시간으로 설정
+        long beginTime = getTodayMidnight(); // 오늘 자정 시간을 시작 시간으로 설정
+
+        List<UsageStats> stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, beginTime, endTime);
+
         if (stats != null) {
+            ArrayList<AppItem> appItems = new ArrayList<>();
             for (UsageStats usageStats : stats) {
                 long timeInForeground = usageStats.getTotalTimeInForeground();
                 int hours = (int) ((timeInForeground / (1000 * 60 * 60)) % 24);
-                int minutes = (int) ((timeInForeground / (1000 * 60)) % 60);int seconds = (int) (timeInForeground / 1000) % 60;
+                int minutes = (int) ((timeInForeground / (1000 * 60)) % 60);
+                int seconds = (int) (timeInForeground / 1000) % 60;
 
-                if (seconds > 0) {
-                    Log.d("asdasd   ", "PackageName: " + usageStats.getPackageName() + ", Time: " + hours + "h:" + minutes + "m:" + seconds + "s");
-                    String d = appTime.getText().toString();
-                    if(d.length() == 0) {
-                        appTime.setText("PackageName: " + usageStats.getPackageName() + ", Time: " + hours + "h:" + minutes + "m:" + seconds + "s");
-                    }else{
-                        appTime.setText(d + "\nPackageName: " + usageStats.getPackageName() + ", Time: " + hours + "h:" + minutes + "m:" + seconds + "s");
+                if (hours > 0 || minutes > 0 || seconds > 0) {
+                    String packageName = usageStats.getPackageName();
+                    PackageManager pm = getPackageManager();
+                    String appName;
+                    Drawable appIcon;
+                    try {
+                        appName = pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString();
+                        appIcon = pm.getApplicationIcon(packageName);
+                    } catch (PackageManager.NameNotFoundException e) {
+                        appName = packageName;
+                        appIcon = getDrawable(R.mipmap.ic_launcher); // 기본 아이콘
                     }
-//                    appTime.append("PackageName: " + usageStats.getPackageName() + ", Time: " + hours + "h:" + minutes + "m:" + seconds + "s");
+
+                    String usageTime = hours + "h:" + minutes + "m:" + seconds + "s";
+                    appItems.add(new AppItem(appName, appIcon, usageTime));
                 }
             }
+            mAppAdapter.setAppItems(appItems);
+        }
+    }
+
+    // 오늘 자정 시간을 반환하는 메서드
+    private long getTodayMidnight() {
+        Calendar calendar = Calendar.getInstance();
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+        return calendar.getTimeInMillis();
+    }
+
+    // 자정 시간인지 확인하는 메서드
+    private boolean isMidnight() {
+        Calendar calendar = Calendar.getInstance();
+        int hour = calendar.get(Calendar.HOUR_OF_DAY);
+        int minute = calendar.get(Calendar.MINUTE);
+        int second = calendar.get(Calendar.SECOND);
+        return hour == 0 && minute == 0 && second == 0;
+    }
+
+    // 패키지 이름으로 앱 이름 가져오기
+    private String getAppName(Context context, String packageName) {
+        try {
+            PackageManager pm = context.getPackageManager();
+            ApplicationInfo ai = pm.getApplicationInfo(packageName, 0);
+            return ai.loadLabel(pm).toString();
+        } catch (PackageManager.NameNotFoundException e) {
+            e.printStackTrace();
+            return "";
         }
     }
 }
