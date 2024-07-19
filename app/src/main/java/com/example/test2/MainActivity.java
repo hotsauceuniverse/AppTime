@@ -1,22 +1,25 @@
 package com.example.test2;
 
+import android.Manifest;
 import android.app.AppOpsManager;
 import android.app.usage.UsageEvents;
 import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManager;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Process;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.LongSparseArray;
+import android.view.View;
+import android.widget.ImageView;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
@@ -26,36 +29,30 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.github.mikephil.charting.BuildConfig;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
-    CheckPackageNameThread checkPackageNameThread;
+    private CheckPackageNameThread checkPackageNameThread;
     boolean operation = false;
     private UsageStatsManager usageStatsManager;
-    RecyclerView appRecyclerView;
-    AppAdapter mAppAdapter;
-    Handler mHandler;
-    private boolean isMidnightAlreadyHandled = false; // 자정 처리 여부를 나타내는 플래그
+    private RecyclerView appRecyclerView;
+    private AppAdapter mAppAdapter;
+    private Handler mHandler;
+    private ImageView preBtn;
+    private ImageView nextBtn;
+    private TextView monthDay;
 
+    // 1초마다 자동 갱신
     private final Runnable mRunnable = new Runnable() {
         @Override
         public void run() {
-            showAppUsageStats();
+            showAppUsageStats(CalendarUtil.selectDate);
             mHandler.postDelayed(this, 1000);
-
-            // 자정에 리스트 초기화
-            if (isMidnight() && !isMidnightAlreadyHandled) {
-                mAppAdapter.clear(); // 리스트 초기화
-                isMidnightAlreadyHandled = true; // 자정 처리 완료
-            }
-
-            // 자정 다음에 다시 초기화 플래그를 리셋
-            if (!isMidnight()) {
-                isMidnightAlreadyHandled = false;
-            }
         }
     };
 
@@ -63,6 +60,31 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        // build.gradle defaultConfig minSdk 26 target upgrade
+        CalendarUtil.selectDate = LocalDate.now();
+
+        preBtn = findViewById(R.id.pre_btn);
+        nextBtn = findViewById(R.id.next_btn);
+        monthDay = findViewById(R.id.month_day);
+
+        preBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                CalendarUtil.selectDate = CalendarUtil.selectDate.minusDays(1);
+                setMonthDay();
+                showAppUsageStats(CalendarUtil.selectDate);
+            }
+        });
+
+        nextBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                CalendarUtil.selectDate = CalendarUtil.selectDate.plusDays(1);
+                setMonthDay();
+                showAppUsageStats(CalendarUtil.selectDate);
+            }
+        });
 
         appRecyclerView = findViewById(R.id.app_recyclerView);
         mAppAdapter = new AppAdapter();
@@ -87,6 +109,15 @@ public class MainActivity extends AppCompatActivity {
             checkPackageNameThread = new CheckPackageNameThread();
             checkPackageNameThread.start();
         }
+    }
+
+    private String monthDayFormat(LocalDate date) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM월 dd일");
+        return date.format(formatter);
+    }
+
+    private void setMonthDay() {
+        monthDay.setText(monthDayFormat(CalendarUtil.selectDate));
     }
 
     // 현재 포그라운드 앱 패키지 로그로 띄우는 함수
@@ -118,28 +149,16 @@ public class MainActivity extends AppCompatActivity {
                 .getSystemService(Context.APP_OPS_SERVICE);
 
         int mode = appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,
-                android.os.Process.myUid(), getApplicationContext().getPackageName());
+                Process.myUid(), getApplicationContext().getPackageName());
 
         if (mode == AppOpsManager.MODE_DEFAULT) {
             granted = (getApplicationContext().checkCallingOrSelfPermission(
-                    android.Manifest.permission.PACKAGE_USAGE_STATS) == PackageManager.PERMISSION_GRANTED);
+                    Manifest.permission.PACKAGE_USAGE_STATS) == PackageManager.PERMISSION_GRANTED);
         } else {
             granted = (mode == AppOpsManager.MODE_ALLOWED);
         }
 
         return granted;
-    }
-
-    public static String getAppName(Context context) {
-        String appName = "";
-        try {
-            PackageManager pm = context.getPackageManager();
-            PackageInfo i = pm.getPackageInfo(context.getPackageName(), 0);
-            appName = i.applicationInfo.loadLabel(pm) + "";
-        } catch (PackageManager.NameNotFoundException e) {
-            e.printStackTrace();
-        }
-        return appName;
     }
 
     // 자신의 앱의 최소 타겟을 롤리팝 이전으로 설정
@@ -204,19 +223,28 @@ public class MainActivity extends AppCompatActivity {
 
     // 앱 사용 시간을 계산하고 로그로 출력하는 함수
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
-    private void showAppUsageStats() {
-        long endTime = System.currentTimeMillis(); // 현재 시간을 종료 시간으로 설정
-        long beginTime = getTodayMidnight(); // 오늘 자정 시간을 시작 시간으로 설정
+    private void showAppUsageStats(LocalDate date) {
+        long endTime = getEndOfDay(date); // 현재 시간을 종료 시간으로 설정
+        Log.d("endTime", String.valueOf(endTime));
+
+        long beginTime = getBeginOfDay(date); // 오늘 자정 시간을 시작 시간으로 설정
+        Log.d("beginTime", String.valueOf(beginTime));
 
         List<UsageStats> stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, beginTime, endTime);
 
         if (stats != null) {
             ArrayList<AppItem> appItems = new ArrayList<>();
-            for (UsageStats usageStats : stats) {
+//            for (UsageStats usageStats : stats) {     // for each 문 => for (각 요소 값 : 배열이나 컨테이너 값) { 반복 수행할 작업 }
+            for (int i = 0; i < stats.size(); i++) {
+                UsageStats usageStats = stats.get(i);
                 long timeInForeground = usageStats.getTotalTimeInForeground();
-                int hours = (int) ((timeInForeground / (1000 * 60 * 60)) % 24);
-                int minutes = (int) ((timeInForeground / (1000 * 60)) % 60);
-                int seconds = (int) (timeInForeground / 1000) % 60;
+                // 1초 = 1,000
+                // 1분 = 1,000 * 60
+                // 1시간 = 1,000 * 60 * 60
+                // 1일 = 1,000 * 60 * 60 * 24
+                int hours = (int) ((timeInForeground / (1000 * 60 * 60)) % 24);     // 24로 나눠 24시간 형식으로 시간 제한
+                int minutes = (int) ((timeInForeground / (1000 * 60)) % 60);        // 60으로 나눠 분 단위를 0 ~ 59까지 제한
+                int seconds = (int) (timeInForeground / 1000) % 60;                 // 60으로 나눠 초 단위를 0 ~ 59까지 제한
 
                 if (hours > 0 || minutes > 0 || seconds > 0) {
                     String packageName = usageStats.getPackageName();
@@ -228,9 +256,8 @@ public class MainActivity extends AppCompatActivity {
                         appIcon = pm.getApplicationIcon(packageName);
                     } catch (PackageManager.NameNotFoundException e) {
                         appName = packageName;
-                        appIcon = getDrawable(R.mipmap.ic_launcher); // 기본 아이콘
+                        appIcon = getDrawable(R.mipmap.ic_launcher);
                     }
-
                     String usageTime = hours + "h:" + minutes + "m:" + seconds + "s";
                     appItems.add(new AppItem(appName, appIcon, usageTime));
                 }
@@ -239,34 +266,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // 오늘 자정 시간을 반환하는 메서드
-    private long getTodayMidnight() {
-        Calendar calendar = Calendar.getInstance();
-        calendar.set(Calendar.HOUR_OF_DAY, 0);
-        calendar.set(Calendar.MINUTE, 0);
-        calendar.set(Calendar.SECOND, 0);
-        calendar.set(Calendar.MILLISECOND, 0);
-        return calendar.getTimeInMillis();
+    // 특정 날짜의 자정 시간을 반환 (00시 00분 00초 000밀리초)
+    private long getBeginOfDay(LocalDate date) {
+        return date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
 
-    // 자정 시간인지 확인하는 메서드
-    private boolean isMidnight() {
-        Calendar calendar = Calendar.getInstance();
-        int hour = calendar.get(Calendar.HOUR_OF_DAY);
-        int minute = calendar.get(Calendar.MINUTE);
-        int second = calendar.get(Calendar.SECOND);
-        return hour == 0 && minute == 0 && second == 0;
-    }
-
-    // 패키지 이름으로 앱 이름 가져오기
-    private String getAppName(Context context, String packageName) {
-        try {
-            PackageManager pm = context.getPackageManager();
-            ApplicationInfo ai = pm.getApplicationInfo(packageName, 0);
-            return ai.loadLabel(pm).toString();
-        } catch (PackageManager.NameNotFoundException e) {
-            e.printStackTrace();
-            return "";
-        }
+    // 특정 날짜의 끝 시간을 반환 (23시 59분 59초 999밀리초)
+    private long getEndOfDay(LocalDate date) {
+        return date.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1;
     }
 }

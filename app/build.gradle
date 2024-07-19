@@ -8,7 +8,7 @@ android {
 
     defaultConfig {
         applicationId "com.example.test2"
-        minSdk 24
+        minSdk 26
         targetSdk 34
         versionCode 1
         versionName "1.0"
@@ -39,4 +39,5 @@ dependencies {
     androidTestImplementation libs.espresso.core
     implementation('com.github.PhilJay:MPAndroidChart:v3.0.3')
     implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.1.0"   // SwipeRefresh
+    implementation "com.github.PhilJay:MPAndroidChart:v3.1.0"       // chart
 }

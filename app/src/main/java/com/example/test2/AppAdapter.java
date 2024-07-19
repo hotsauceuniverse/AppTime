@@ -47,17 +47,20 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.ViewHolder> {
 
         ImageView AppIcon;
         TextView AppUseTime;
+        TextView AppName;
 
         public ViewHolder(@NonNull View itemView) {
             super(itemView);
 
             AppIcon = itemView.findViewById(R.id.app_icon);
             AppUseTime = itemView.findViewById(R.id.app_use_time);
+            AppName = itemView.findViewById(R.id.app_name);
         }
 
         void onBind(AppItem item) {
             AppUseTime.setText(item.getAppTime());
             AppIcon.setImageDrawable(item.getAppIcon());
+            AppName.setText(item.getAppName());
         }
     }
 }
