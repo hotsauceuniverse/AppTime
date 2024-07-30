@@ -7,8 +7,11 @@ import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
+import android.health.connect.datatypes.AppInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -33,6 +36,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -87,9 +91,12 @@ public class MainActivity extends AppCompatActivity {
         });
 
         appRecyclerView = findViewById(R.id.app_recyclerView);
-        mAppAdapter = new AppAdapter();
-        appRecyclerView.setAdapter(mAppAdapter);
         appRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+
+        ArrayList<AppItem> userInstalledApps = getUserInstalledApps();
+        mAppAdapter = new AppAdapter();
+        mAppAdapter.setAppItems(userInstalledApps);
+        appRecyclerView.setAdapter(mAppAdapter);
 
         this.mHandler = new Handler();
 
@@ -259,7 +266,7 @@ public class MainActivity extends AppCompatActivity {
                         appIcon = getDrawable(R.mipmap.ic_launcher);
                     }
                     String usageTime = hours + "h:" + minutes + "m:" + seconds + "s";
-                    appItems.add(new AppItem(appName, appIcon, usageTime));
+                    appItems.add(new AppItem(appName, appIcon, usageTime, packageName));
                 }
             }
             mAppAdapter.setAppItems(appItems);
@@ -274,5 +281,25 @@ public class MainActivity extends AppCompatActivity {
     // 특정 날짜의 끝 시간을 반환 (23시 59분 59초 999밀리초)
     private long getEndOfDay(LocalDate date) {
         return date.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1;
+    }
+
+    // 사용자가 설치한 파일 확인
+    private ArrayList<AppItem> getUserInstalledApps() {
+        ArrayList<AppItem> installedApps = new ArrayList<>();
+        PackageManager packageManager = getPackageManager();
+        List<PackageInfo> packageList = packageManager.getInstalledPackages(0);
+
+        for (PackageInfo packageInfo : packageList) {
+            // 시스템 앱이 아닌 사용자 앱만을 선택
+            // ApplicationInfo.FLAG_SYSTEM 플래그가 설정되지 않은 앱만을 필터링
+            if ((packageInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) == 0) {
+                String appName = packageInfo.applicationInfo.loadLabel(packageManager).toString();
+                Log.d("appName", appName);
+                String packageName = packageInfo.packageName;
+                Drawable appIcon = packageInfo.applicationInfo.loadIcon(packageManager);
+                installedApps.add(new AppItem(appName, appIcon, "", packageName));
+            }
+        }
+        return installedApps;
     }
 }

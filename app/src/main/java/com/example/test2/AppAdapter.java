@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 
 public class AppAdapter extends RecyclerView.Adapter<AppAdapter.ViewHolder> {
+
     private ArrayList<AppItem> appItems;
 
     @NonNull
@@ -29,13 +30,6 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.ViewHolder> {
     public void setAppItems(ArrayList<AppItem> list) {
         this.appItems = list;
         notifyDataSetChanged();
-    }
-
-    public void clear() {
-        if (appItems != null) {
-            appItems.clear();
-            notifyDataSetChanged();
-        }
     }
 
     @Override
